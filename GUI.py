@@ -66,7 +66,7 @@ class ContainerSelector:
 class MainWindow:
     def __init__(self):
         self._main_window = tk.Tk()
-        self._main_window.title('Копирование контейнеров КриптоПРО')
+        self._main_window.title('Копирование контейнеров КриптоПро v1.1')
         try:
             os.chdir(sys._MEIPASS)
         except Exception:
@@ -118,6 +118,15 @@ class MainWindow:
         self._btn_file2reg.grid(padx=5, pady=5, stick='we')
         self._btn_reg2file.grid(padx=5, pady=5, stick='we')
         self._btn_reg2file_all.grid(padx=5, pady=5, stick='we')
+        try:
+            self._dir_safe_path = key_copy.get_crypto_pro_safe_directory()
+        except Exception:
+            self._dir_safe_path = None
+        if self._dir_safe_path is not None:
+            self._btn_open_dir_safe = ttk.Button(self._main_window,
+                                                 text='Открыть хранилище "директория"',
+                                                 command=self._open_dir_safe)
+            self._btn_open_dir_safe.grid(padx=5, pady=5, stick='we')
 
     def run(self):
         tk.messagebox.showwarning(title='Дисклеймер',
@@ -383,6 +392,19 @@ class MainWindow:
             return None
         tkinter.messagebox.showinfo(title='Успех',
                                     message='Контейнеры успешно скопированы в ФС.')
+
+    def _open_dir_safe(self):
+        tk.messagebox.showinfo(title='Напоминание',
+                               message='Для корректного чтения контейнерв, имена папкок должны:\n'
+                                       '* не превышать 8 символов\n'
+                                       '* иметь только лат. буквы и цифры\n'
+                                       '* не иметь спец. символов, за исключением "-"\n'
+                                       '* заканчиваться на ".000" (данное окончание не складывается с размером имени'
+                                       ' папки)')
+        try:
+            subprocess.Popen(['explorer.exe', self._dir_safe_path], shell=True)
+        except Exception:
+            tkinter.messagebox.showerror(title='Ошибка!', message='Не удалось открыть хранилище "директория"!')
 
 
 if __name__ == '__main__':

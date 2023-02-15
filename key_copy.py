@@ -3,7 +3,6 @@ import os
 import sys
 import winreg
 import ctypes
-import platform
 import subprocess
 
 
@@ -11,10 +10,10 @@ if sys.platform != 'win32':
     print('Your platform not supported!')
     sys.exit(1)
 try:
-    key = winreg.OpenKey(winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE), 'SOFTWARE\\WOW6432Node')
+    wow64_key = winreg.OpenKey(winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE), 'SOFTWARE\\WOW6432Node')
     WOW6432Node = 'WOW6432Node\\'
-    winreg.CloseKey(key)
-    del(key)
+    winreg.CloseKey(wow64_key)
+    del wow64_key
 except EnvironmentError:
     WOW6432Node = ''
 
@@ -161,14 +160,14 @@ def _get_sid_current_user():
         process = subprocess.Popen(['whoami', '/user'], stdout=subprocess.PIPE)
         data = process.communicate()
         if not data[0]:
-            raise CurrentSIDError("No data!")
+            raise CurrentSIDError('No data!')
         data = data[0].decode('CP866')
         r = re.search(r'(S-.+\d)', data)
         if not r:
             raise CurrentSIDError('User SID not parsed!')
         return r.groups()[0]
     except Exception:
-        raise CurrentSIDError("Getting user SID failed!")
+        raise CurrentSIDError('Getting user SID failed!')
 
 
 def _get_key_name(name_key_data: bytes):
@@ -307,7 +306,7 @@ def file_to_reg(key_path: str, for_user: bool = True):
     :param key_path: Путь до папки с ключем
     :param for_user: Будующее хранилице ключа (компьютер - False, пользователь - True, по-умолчанию)
 
-    :exception ArgError: Ошибка типа аргумента key_path /  for_user
+    :exception ArgError: Ошибка типа аргумента key_path / for_user
     :exception PathLengthError: Ошибка длинны аргумента key_path
     :exception PathNotExists: Путь, указанный в key_path не существует
     :exception IsNotDirectoryError: Путь, указанный в key_path не является директорией
@@ -538,3 +537,47 @@ def all_keys_reg_to_file(target_dir_path: str, for_user: bool = True):
     for key in key_list:
         os.makedirs(target_dir_path + '\\' + key)
         reg_to_file(target_dir_path + '\\' + key, key, for_user)
+
+
+def _get_crypto_pro_version():
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\')
+    except Exception:
+        raise RegReadError('Opening CryptoPro registry directory failed!')
+    i = 0
+    try:
+        while True:
+            try:
+                data = winreg.EnumValue(key, i)
+                i += 1
+                if data[0].lower() == 'version':
+                    winreg.CloseKey(key)
+                    return data[1]
+            except OSError:
+                break
+    except Exception:
+        raise RegReadError('Reading version info from registry value failed!')
+    winreg.CloseKey(key)
+    return None
+
+
+def get_crypto_pro_safe_directory():
+    """
+    Получение пути до хранилища "дирректория"
+
+    :exception RegReadError: Ошибка чтения раздела / значения версии КриптоПро
+
+    :return: Путь до хранилища "директория". None в случае старой версии КриптоПро или отсутвия дирректории
+    """
+    cp_version = _get_crypto_pro_version()
+    try:
+        cp_major_version = int(cp_version.split('.')[0])
+    except Exception:
+        raise DataConvertError('Parse CryptoPro version failed!')
+    if cp_major_version < 5:
+        return None  # Данный функционал появился только в 5-й версии
+    path = os.path.expanduser('~') + '\\AppData\\Local\\Crypto Pro'
+    if os.path.exists(path) and os.path.isdir(path):
+        return path
+    else:
+        return None  # Зачем возвращать путь до папки, которой не существует?
