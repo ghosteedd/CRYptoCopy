@@ -11,11 +11,13 @@ if sys.platform != 'win32':
     sys.exit(1)
 try:
     wow64_key = winreg.OpenKey(winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE), 'SOFTWARE\\WOW6432Node')
-    WOW6432Node = 'WOW6432Node\\'
+    _base_reg_key = 'SOFTWARE\\WOW6432Node'
     winreg.CloseKey(wow64_key)
     del wow64_key
 except EnvironmentError:
-    WOW6432Node = ''
+    _base_reg_key = 'SOFTWARE'
+
+_sid_cache = None
 
 
 # ################## EXCEPTIONS ################## #
@@ -156,18 +158,21 @@ def _read_file(file_path: str):
 
 
 def _get_sid_current_user():
-    try:
-        process = subprocess.Popen(['whoami', '/user'], stdout=subprocess.PIPE)
-        data = process.communicate()
-        if not data[0]:
-            raise CurrentSIDError('No data!')
-        data = data[0].decode('CP866')
-        r = re.search(r'(S-.+\d)', data)
-        if not r:
-            raise CurrentSIDError('User SID not parsed!')
-        return r.groups()[0]
-    except Exception:
-        raise CurrentSIDError('Getting user SID failed!')
+    global _sid_cache
+    if _sid_cache is None:
+        try:
+            process = subprocess.Popen(['whoami', '/user'], stdout=subprocess.PIPE)
+            data = process.communicate()
+            if not data[0]:
+                raise CurrentSIDError('No data!')
+            data = data[0].decode('CP866')
+            r = re.search(r'(S-.+\d)', data)
+            if not r:
+                raise CurrentSIDError('User SID not parsed!')
+            _sid_cache = r.groups()[0]
+        except Exception:
+            raise CurrentSIDError('Getting user SID failed!')
+    return _sid_cache
 
 
 def _get_key_name(name_key_data: bytes):
@@ -252,10 +257,10 @@ def create_reg_file(key_path: str, file_path: str, for_user: bool = True):
     except DataConvertError:
         raise DataConvertError('Convert masks2.key failed!')
     if for_user:
-        path = f'HKEY_LOCAL_MACHINE\\SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings' \
+        path = f'HKEY_LOCAL_MACHINE\\{_base_reg_key}\\Crypto Pro\\Settings' \
                f'\\Users\\{_get_sid_current_user()}\\Keys\\{key_name}'
     else:
-        path = f'HKEY_LOCAL_MACHINE\\SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Keys\\{key_name}'
+        path = f'HKEY_LOCAL_MACHINE\\{_base_reg_key}\\Crypto Pro\\Settings\\Keys\\{key_name}'
     text_4_write = f'Windows Registry Editor Version 5.00\n\n' \
                    f'[{path}]\n' \
                    f'"name.key"=hex:{name_data}\n' \
@@ -280,21 +285,21 @@ def check_admin_status():
 def _create_reg_directories():
     if not check_admin_status():
         raise AdminStatusError('You are not admin!')
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}')
+    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _base_reg_key)
     winreg.CreateKey(key, 'Crypto Pro')
     winreg.CloseKey(key)
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro')
+    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro')
     winreg.CreateKey(key, 'Settings')
     winreg.CloseKey(key)
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings')
+    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings')
     winreg.CreateKey(key, 'Users')
     winreg.CreateKey(key, 'Keys')
     winreg.CloseKey(key)
     sid = _get_sid_current_user()
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Users')
+    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users')
     winreg.CreateKey(key, sid)
     winreg.CloseKey(key)
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Users\\{sid}')
+    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{sid}')
     winreg.CreateKey(key, 'Keys')
     winreg.CloseKey(key)
 
@@ -330,18 +335,18 @@ def file_to_reg(key_path: str, for_user: bool = True):
     masks2_data = _read_file(key_path + '\\masks2.key')
     key_name = _get_key_name(name_data)
     if for_user:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Users\\'
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\'
                                                         f'{_get_sid_current_user()}\\Keys')
     else:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Keys')
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Keys')
     winreg.CreateKey(key, key_name)
     winreg.CloseKey(key)
     if for_user:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Users\\'
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\'
                                                         f'{_get_sid_current_user()}\\Keys\\{key_name}',
                              access=winreg.KEY_ALL_ACCESS)
     else:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Keys\\'
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Keys\\'
                                                         f'{key_name}',
                              access=winreg.KEY_ALL_ACCESS)
     try:
@@ -371,12 +376,12 @@ def get_key_list_in_reg(for_user: bool = True):
         raise ArgError('Param type for_user error!')
     try:
         if for_user:
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Users\\'
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\'
                                                             f'{_get_sid_current_user()}\\Keys')
         else:
             if not check_admin_status():
                 raise AdminStatusError('You are not admin!')
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Keys')
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Keys')
     except Exception:
         raise RegReadError('Reading registry directory failed!')
     result = list()
@@ -452,12 +457,12 @@ def reg_to_file(target_dir_path: str, key_name: str, for_user: bool = True):
         raise CreateDirectoryError()
     try:
         if for_user:
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Users\\'
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\'
                                                             f'{_get_sid_current_user()}\\Keys\\{key_name}')
         else:
             if not check_admin_status():
                 raise AdminStatusError('You are not admin!')
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\Keys\\'
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Keys\\'
                                                             f'{key_name}')
     except Exception:
         raise RegReadError('Reading registry directory failed!')
@@ -541,7 +546,7 @@ def all_keys_reg_to_file(target_dir_path: str, for_user: bool = True):
 
 def _get_crypto_pro_version():
     try:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'SOFTWARE\\{WOW6432Node}Crypto Pro\\Settings\\')
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\')
     except Exception:
         raise RegReadError('Opening CryptoPro registry directory failed!')
     i = 0
@@ -563,9 +568,10 @@ def _get_crypto_pro_version():
 
 def get_crypto_pro_safe_directory():
     """
-    Получение пути до хранилища "дирректория"
+    Получение пути до хранилища "директория"
 
     :exception RegReadError: Ошибка чтения раздела / значения версии КриптоПро
+    :exception DataConvertError: Ошибка парсинга версии КриптоПро
 
     :return: Путь до хранилища "директория". None в случае старой версии КриптоПро или отсутвия дирректории
     """
@@ -576,7 +582,7 @@ def get_crypto_pro_safe_directory():
         raise DataConvertError('Parse CryptoPro version failed!')
     if cp_major_version < 5:
         return None  # Данный функционал появился только в 5-й версии
-    path = os.path.expanduser('~') + '\\AppData\\Local\\Crypto Pro'
+    path = os.path.expandvars('%LocalAppData%') + '\\Crypto Pro'
     if os.path.exists(path) and os.path.isdir(path):
         return path
     else:
