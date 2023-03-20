@@ -90,19 +90,19 @@ class MainWindow:
         self._reg_type = tk.IntVar()
         self._box_reg_type = ttk.LabelFrame(self._main_window,
                                             text='Тип хранилища (реестр)')
-        self._rd_user = ttk.Radiobutton(self._box_reg_type,
+        self._rb_user = ttk.Radiobutton(self._box_reg_type,
                                         text='Пользователь',
                                         variable=self._reg_type,
                                         value=0)
-        self._rd_pc = ttk.Radiobutton(self._box_reg_type,
+        self._rb_pc = ttk.Radiobutton(self._box_reg_type,
                                       text='Компьютер',
                                       variable=self._reg_type,
                                       value=1)
         self._reg_type.set(0)
         if not self._running_as_admin:
-            self._rd_pc['state'] = tk.DISABLED
-        self._rd_user.grid(padx=5, pady=5, stick='w')
-        self._rd_pc.grid(padx=5, pady=5, stick='w')
+            self._rb_pc['state'] = tk.DISABLED
+        self._rb_user.grid(padx=5, pady=5, stick='w')
+        self._rb_pc.grid(padx=5, pady=5, stick='w')
         self._btn_file2reg = ttk.Button(self._main_window,
                                         text='Копировать контейнер из ФС в реестр',
                                         command=self._file2reg)
@@ -134,7 +134,7 @@ class MainWindow:
                                           'Используя её вы берете на себя всю ответственность за любой ущерб, '
                                           'обязательства или повреждения, вызванным любым функционалом данного ПО!\n'
                                           'Для некоторого функционала программы требуются права администратора. '
-                                          'Обраите внимание, что при запуске от иного пользователя будет '
+                                          'Обратите внимание, что при запуске от иного пользователя будет '
                                           'использоваться его директория в реестре!')
         self._main_window.mainloop()
 
@@ -163,7 +163,7 @@ class MainWindow:
                 return None
             except key_copy.IsNotDirectoryError:
                 tkinter.messagebox.showerror(title='Ошибка!',
-                                             message='Указаннаый путь не является папкой!')
+                                             message='Указанный путь не является папкой!')
                 return None
             except key_copy.FileNotExists:
                 tkinter.messagebox.showerror(title='Ошибка!',
@@ -215,7 +215,7 @@ class MainWindow:
                 return None
             except key_copy.IsNotDirectoryError:
                 tkinter.messagebox.showerror(title='Ошибка!',
-                                             message='Указаннаый путь не является папкой!')
+                                             message='Указанный путь не является папкой!')
                 return None
             except key_copy.FileNotExists:
                 tkinter.messagebox.showerror(title='Ошибка!',
@@ -395,11 +395,11 @@ class MainWindow:
 
     def _open_dir_safe(self):
         tk.messagebox.showinfo(title='Напоминание',
-                               message='Для корректного чтения контейнерв, имена папкок должны:\n'
+                               message='Для корректного чтения контейнеров, имена папок должны:\n'
                                        '* не превышать 8 символов\n'
                                        '* иметь только лат. буквы и цифры\n'
                                        '* не иметь спец. символов, за исключением "-"\n'
-                                       '* заканчиваться на ".000" (данное окончание не складывается с размером имени'
+                                       '* заканчиваться на ".000" (данное окончание не суммируется с размером имени'
                                        ' папки)')
         try:
             subprocess.Popen(['explorer.exe', self._dir_safe_path], shell=True)
