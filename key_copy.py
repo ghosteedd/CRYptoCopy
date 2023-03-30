@@ -6,9 +6,27 @@ import ctypes
 import subprocess
 
 
+try:
+    import win32con
+    import win32api
+    import ntsecuritycon
+    import win32security
+except ModuleNotFoundError:
+    print('Module pywin32 not found!')
+    try:
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pywin32'])
+    except subprocess.CalledProcessError:
+        print('Module install failed!')
+        sys.exit(1)
+    print('Please restart script!')
+    sys.exit(1)
+
+
 if sys.platform != 'win32':
     print('Your platform not supported!')
     sys.exit(1)
+
+
 try:
     wow64_key = winreg.OpenKey(winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE), 'SOFTWARE\\WOW6432Node')
     _base_reg_key = 'SOFTWARE\\WOW6432Node'
@@ -16,6 +34,7 @@ try:
     del wow64_key
 except EnvironmentError:
     _base_reg_key = 'SOFTWARE'
+
 
 _sid_cache = None
 
@@ -187,12 +206,104 @@ def _get_key_name(name_key_data: bytes):
         raise KeyNameParseError('Parse key name failed!')
 
 
+def check_admin_status() -> bool:
+    """
+    Проверка на запуск от имени администратора
+    :return: True - программа/скрипт запущен(-а) от имени администратора
+    """
+    return ctypes.windll.shell32.IsUserAnAdmin() != 0
+
+
+def _create_reg_directories():
+    sid = _get_sid_current_user()
+    if check_admin_status():
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro')
+            winreg.CloseKey(key)
+        except FileNotFoundError:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _base_reg_key)
+            winreg.CreateKey(key, 'Crypto Pro')
+            winreg.CloseKey(key)
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings')
+            winreg.CloseKey(key)
+        except FileNotFoundError:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro')
+            winreg.CreateKey(key, 'Settings')
+            winreg.CloseKey(key)
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Keys')
+            winreg.CloseKey(key)
+        except FileNotFoundError:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings')
+            winreg.CreateKey(key, 'Keys')
+            winreg.CloseKey(key)
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users')
+            winreg.CloseKey(key)
+        except FileNotFoundError:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings')
+            winreg.CreateKey(key, 'Users')
+            winreg.CloseKey(key)
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{sid}')
+            winreg.CloseKey(key)
+        except FileNotFoundError:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users')
+            winreg.CreateKey(key, sid)
+            winreg.CloseKey(key)
+            key = win32api.RegOpenKey(win32con.HKEY_LOCAL_MACHINE,
+                                      f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{sid}',
+                                      0,
+                                      win32con.KEY_ALL_ACCESS)
+            # Владелец ветки:
+            key_security = win32api.RegGetKeySecurity(key, win32con.OWNER_SECURITY_INFORMATION)
+            key_security.SetSecurityDescriptorOwner(win32security.ConvertStringSidToSid(sid), False)
+            win32api.RegSetKeySecurity(key, win32con.OWNER_SECURITY_INFORMATION, key_security)
+            # Права на ветку:
+            key_security = win32api.RegGetKeySecurity(key, win32con.DACL_SECURITY_INFORMATION)
+            dacl = key_security.GetSecurityDescriptorDacl()
+            dacl.AddAccessAllowedAceEx(win32security.ACL_REVISION_DS,
+                                       win32security.CONTAINER_INHERIT_ACE,
+                                       ntsecuritycon.GENERIC_ALL,
+                                       win32security.ConvertStringSidToSid(sid))
+            key_security.SetDacl(True, dacl, False)
+            win32api.RegSetKeySecurity(key, win32con.DACL_SECURITY_INFORMATION, key_security)
+
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{sid}')
+        winreg.CloseKey(key)
+    except Exception:
+        raise RegReadError('User registry directory not exist')
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{sid}\\Keys')
+        winreg.CloseKey(key)
+    except FileNotFoundError:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{sid}')
+        winreg.CreateKey(key, 'Keys')
+        winreg.CloseKey(key)
+
+
+def check_user_registry_dir() -> bool:
+    """
+    Проверка существования раздела реестра для текущего пользователя
+    :return: True - раздел существует.
+    """
+    try:
+        sid = _get_sid_current_user()
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{sid}')
+        winreg.CloseKey(key)
+        return True
+    except FileNotFoundError:
+        return False
+
+
 def _convert_bytes2hex(data: bytes):
     if not isinstance(data, bytes) or len(data) < 1:
         raise ArgError('Data type error!')
     result = str()
     for byte in data:
-        result += hex(byte)[2:] + ','
+        result += hex(byte)[2:] + ','  # drop "0x"
     if len(result) > 1:
         result = result[:-1]
     else:
@@ -200,31 +311,33 @@ def _convert_bytes2hex(data: bytes):
     return result
 
 
-def create_reg_file(key_path: str, file_path: str, for_user: bool = True):
+def create_reg_file(key_path: str, file_path: str, for_user: bool = True) -> None:
     """
     Создание .reg файла для дальнейшего импорта ключа в реестровое хранилище КриптоПРО
 
     :param key_path: Путь до папки с ключем
-    :param file_path: Путь до будующего .reg файла (вкл. его расширение)
-    :param for_user: Будующее хранилице ключа (компьютер - False, пользователь - True, по-умолчанию)
+    :param file_path: Путь до будущего .reg файла (вкл. его расширение)
+    :param for_user: Будущее хранилище ключа (компьютер - False, пользователь - True, по-умолчанию)
 
     :exception ArgError: Ошибка типа аргумента key_path / file_path / for_user
     :exception PathLengthError: Ошибка длинны аргумента key_path
     :exception PathNotExists: Путь, указанный в key_path не существует
     :exception IsNotDirectoryError: Путь, указанный в key_path не является директорией
-    :exception FileNotExists: Один или несклько файлов ключа не существует
+    :exception FileNotExists: Один или несколько файлов ключа не существует
     :exception FileReadError: Ошибка чтения файла ключа
     :exception FilesError: Иные ошибки чтения файла(-ов) ключа
     :exception KeyNameParseError: Ошибка парсинга файла name.key (извлечение имени ключа)
     :exception DataConvertError: Ошибка конвертации ключа в 16-тиричный формат
     :exception CurrentSIDError: Ошибка получения SID текущего пользователя
     :exception CreateFileError: Ошибка создание reg файла
+    :exception RegReadError: Ошибка чтения раздела реестра пользователя
     """
     if not isinstance(for_user, bool):
         raise ArgError('Param type for_user error!')
     if not isinstance(file_path, str):
         raise ArgError('Param type file_path error!')
     _check_key_directory(key_path)
+    _create_reg_directories()
     name_data = _read_file(key_path + '\\name.key')
     header_data = _read_file(key_path + '\\header.key')
     primary_data = _read_file(key_path + '\\primary.key')
@@ -270,57 +383,30 @@ def create_reg_file(key_path: str, file_path: str, for_user: bool = True):
                    f'"masks.key"=hex:{masks_data}\n' \
                    f'"masks2.key"=hex:{masks2_data}\n'
     try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        with open(file_path, 'w') as file:
+        with open(file_path, 'wt') as file:
             file.write(text_4_write)
     except Exception:
         raise CreateFileError('Saving reg-file failed!')
 
 
-def check_admin_status():
-    return ctypes.windll.shell32.IsUserAnAdmin() != 0
-
-
-def _create_reg_directories():
-    if not check_admin_status():
-        raise AdminStatusError('You are not admin!')
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _base_reg_key)
-    winreg.CreateKey(key, 'Crypto Pro')
-    winreg.CloseKey(key)
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro')
-    winreg.CreateKey(key, 'Settings')
-    winreg.CloseKey(key)
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings')
-    winreg.CreateKey(key, 'Users')
-    winreg.CreateKey(key, 'Keys')
-    winreg.CloseKey(key)
-    sid = _get_sid_current_user()
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users')
-    winreg.CreateKey(key, sid)
-    winreg.CloseKey(key)
-    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{sid}')
-    winreg.CreateKey(key, 'Keys')
-    winreg.CloseKey(key)
-
-
-def file_to_reg(key_path: str, for_user: bool = True):
+def file_to_reg(key_path: str, for_user: bool = True) -> None:
     """
     Копирование ключа из файлов в реестровое хранилище КриптоПРО. Требуются права администратора!
 
     :param key_path: Путь до папки с ключем
-    :param for_user: Будующее хранилице ключа (компьютер - False, пользователь - True, по-умолчанию)
+    :param for_user: Будущее хранилище ключа (компьютер - False, пользователь - True, по-умолчанию)
 
     :exception ArgError: Ошибка типа аргумента key_path / for_user
     :exception PathLengthError: Ошибка длинны аргумента key_path
     :exception PathNotExists: Путь, указанный в key_path не существует
     :exception IsNotDirectoryError: Путь, указанный в key_path не является директорией
-    :exception FileNotExists: Один или несклько файлов ключа не существует
+    :exception FileNotExists: Один или несколько файлов ключа не существует
     :exception FileReadError: Ошибка чтения файла ключа
     :exception FilesError: Иные ошибки чтения файла(-ов) ключа
     :exception KeyNameParseError: Ошибка парсинга файла name.key (извлечение имени ключа)
     :exception AdminStatusError: Отсутствуют права администратора
     :exception CurrentSIDError: Ошибка получения SID текущего пользователя
+    :exception RegReadError: Ошибка чтения раздела реестра пользователя
     :exception RegWriteError: Ошибка записи данных в реестр
     """
     if not isinstance(for_user, bool):
@@ -335,15 +421,15 @@ def file_to_reg(key_path: str, for_user: bool = True):
     masks2_data = _read_file(key_path + '\\masks2.key')
     key_name = _get_key_name(name_data)
     if for_user:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\'
-                                                        f'{_get_sid_current_user()}\\Keys')
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                             f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{_get_sid_current_user()}\\Keys')
     else:
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Keys')
     winreg.CreateKey(key, key_name)
     winreg.CloseKey(key)
     if for_user:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\'
-                                                        f'{_get_sid_current_user()}\\Keys\\{key_name}',
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                             f'{_base_reg_key}\\Crypto Pro\\Settings\\Users\\{_get_sid_current_user()}\\Keys\\{key_name}',
                              access=winreg.KEY_ALL_ACCESS)
     else:
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{_base_reg_key}\\Crypto Pro\\Settings\\Keys\\'
@@ -351,17 +437,38 @@ def file_to_reg(key_path: str, for_user: bool = True):
                              access=winreg.KEY_ALL_ACCESS)
     try:
         winreg.SetValueEx(key, 'name.key', 0, winreg.REG_BINARY, name_data)
+    except Exception:
+        winreg.CloseKey(key)
+        raise RegWriteError('Writing name.key failed!')
+    try:
         winreg.SetValueEx(key, 'header.key', 0, winreg.REG_BINARY, header_data)
+    except Exception:
+        winreg.CloseKey(key)
+        raise RegWriteError('Writing header.key failed!')
+    try:
         winreg.SetValueEx(key, 'primary.key', 0, winreg.REG_BINARY, primary_data)
+    except Exception:
+        winreg.CloseKey(key)
+        raise RegWriteError('Writing primary.key failed!')
+    try:
         winreg.SetValueEx(key, 'primary2.key', 0, winreg.REG_BINARY, primary2_data)
+    except Exception:
+        winreg.CloseKey(key)
+        raise RegWriteError('Writing primary2.key failed!')
+    try:
         winreg.SetValueEx(key, 'masks.key', 0, winreg.REG_BINARY, masks_data)
+    except Exception:
+        winreg.CloseKey(key)
+        raise RegWriteError('Writing masks.key failed!')
+    try:
         winreg.SetValueEx(key, 'masks2.key', 0, winreg.REG_BINARY, masks2_data)
     except Exception:
-        raise RegWriteError()
+        winreg.CloseKey(key)
+        raise RegWriteError('Writing masks2.key failed!')
     winreg.CloseKey(key)
 
 
-def get_key_list_in_reg(for_user: bool = True):
+def get_key_list_in_reg(for_user: bool = True) -> list:
     """
     Получение списка ключей, хранящихся в реестре. Для типа хранилища "компьютер" необходимы права администратора!
 
@@ -414,7 +521,7 @@ def _write_binary_file(file_path: str, data: bytes):
         raise FileWriteError()
 
 
-def reg_to_file(target_dir_path: str, key_name: str, for_user: bool = True):
+def reg_to_file(target_dir_path: str, key_name: str, for_user: bool = True) -> None:
     """
     Копирование ключа из реестра в файлы. Для типа хранилища "компьютер" необходимы права администратора!
 
@@ -509,7 +616,7 @@ def reg_to_file(target_dir_path: str, key_name: str, for_user: bool = True):
     _write_binary_file(target_dir_path + '\\primary2.key', primary2_data)
 
 
-def all_keys_reg_to_file(target_dir_path: str, for_user: bool = True):
+def all_keys_reg_to_file(target_dir_path: str, for_user: bool = True) -> None:
     """
     Экспорт всех ключей из реестра в файлы. Для типа хранилища "компьютер" необходимы права администратора!
 
@@ -566,14 +673,14 @@ def _get_crypto_pro_version():
     return None
 
 
-def get_crypto_pro_safe_directory():
+def get_crypto_pro_safe_directory() -> str or None:
     """
     Получение пути до хранилища "директория"
 
     :exception RegReadError: Ошибка чтения раздела / значения версии КриптоПро
     :exception DataConvertError: Ошибка парсинга версии КриптоПро
 
-    :return: Путь до хранилища "директория". None в случае старой версии КриптоПро или отсутвия дирректории
+    :return: Путь до хранилища "директория". None в случае старой версии КриптоПро или отсутствия директории
     """
     cp_version = _get_crypto_pro_version()
     try:

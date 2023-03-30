@@ -66,7 +66,7 @@ class ContainerSelector:
 class MainWindow:
     def __init__(self):
         self._main_window = tk.Tk()
-        self._main_window.title('Копирование контейнеров КриптоПро v1.1')
+        self._main_window.title('Копирование контейнеров КриптоПро v1.2')
         try:
             os.chdir(sys._MEIPASS)
         except Exception:
@@ -150,6 +150,16 @@ class MainWindow:
         if directory == '':
             return None
         if not self._running_as_admin:
+            if not key_copy.check_user_registry_dir():
+                tkinter.messagebox.showerror(title='Ошибка!',
+                                             message='Раздел реестра для текущего пользователя не существует!\n\n'
+                                                     'Попробуйте открыть КриптоПро, выбрать вкладку "сервис", далее '
+                                                     'нажать "протестировать" и в появившемся окне нажать "обзор". '
+                                                     'После данной манипуляции попробуйте скопировать контейнер ещё раз'
+                                                     '.\n\nЕсли данное действие не помогло проверьте наличие и права '
+                                                     'следующей ветки реестра:\n'
+                                                     f'HKLM\\{key_copy._base_reg_key}\\Crypto Pro\\Settings\\Users')
+                return None
             target_file = tkinter.filedialog.asksaveasfilename(title='Сохранение файла реестра',
                                                                filetypes=(('Файлы реестра (.reg)', '*.reg'),))
             if target_file == '':
@@ -192,6 +202,10 @@ class MainWindow:
             except key_copy.CurrentSIDError:
                 tkinter.messagebox.showerror(title='Ошибка!',
                                              message='Ошибка получения SID текущего пользователя!')
+                return None
+            except key_copy.RegReadError:
+                tkinter.messagebox.showerror(title='Ошибка!',
+                                         message='Ошибка чтения раздела реестра пользователя!')
                 return None
             except Exception:
                 tkinter.messagebox.showerror(title='Ошибка!',
